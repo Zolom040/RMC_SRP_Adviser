@@ -21,6 +21,7 @@ def main():
     month = last_month.month
     year = last_month.year
     print(f"month {month} year {year}")
+    print(f"{loader.cta_systems}")
     requester = EveRequester()
     inshu = requester.get_Inshurances()
     inshurances = dict()
@@ -46,10 +47,14 @@ def main():
                         if "character_id" in kmd["victim"]:
                             char_id = kmd["victim"]["character_id"]
                         else:
-                            print(f"какая то ошибка с json в киле {killmail_id} пропущу это килмыло. ктото недополучит компенс. вероятно это мобилка")
+                            print(f"Запись о структуре {killmail_id} пропущу это килмыло.")
                             continue
                     else:
-                        print(f"какая то ошибка с json в киле {killmail_id} пропущу это килмыло. ктото недополучит компенс. вероятно это мобилка")
+                        print(f"Запись о структуре {killmail_id} пропущу это килмыло.")
+                        continue
+                    systemid = kmd["solar_system_id"]
+                    if str(systemid) not in loader.cta_systems :
+                        print(f"{systemid} Система не заапрувлена как кта. Wrong solar system. It will be passed")
                         continue
 
                     if char_id not in Members:
