@@ -58,19 +58,21 @@ def main():
                         continue
 
                     if char_id not in Members:
-                        new_member = {
-                            "ID": char_id,
-                            "Name": requester.get_CharacterInfo(kmd["victim"]["character_id"])["name"],
-                            "Aliance": AlianceTicker,
-                            "total_cost": 0,
-                            "natur_compens_ids" : [],
-                            "dps_links": [],
-                            "support_links": [],
-                            "tackle_links": [],
-                            "valuble_links": [],
-                            "capital_links": []
-                        }
-                        Members[new_member["ID"]] = new_member
+                        char_info = requester.get_CharacterInfo(kmd["victim"]["character_id"])
+                        if char_info["alliance_id"] in loader.alliances:
+                            new_member = {
+                                "ID": char_id,
+                                "Name": char_info["name"],
+                                "Aliance": AlianceTicker,
+                                "total_cost": 0,
+                                "natur_compens_ids" : [],
+                                "dps_links": [],
+                                "support_links": [],
+                                "tackle_links": [],
+                                "valuble_links": [],
+                                "capital_links": []
+                            }
+                            Members[new_member["ID"]] = new_member
 
                     sh_id = kmd["victim"]["ship_type_id"]
                     ship_id = str(sh_id)
