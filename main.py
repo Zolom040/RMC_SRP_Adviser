@@ -3,6 +3,8 @@
 from eve_api_requests import EveRequester
 from esi_IDLoader import esi_ID_loader
 from datetime import datetime, timedelta, date
+from openpyxl.styles import Font, numbers  # Добавляем импорт
+from openpyxl.utils.dataframe import dataframe_to_rows
 import pandas as pd
 import json
 import openpyxl
@@ -28,7 +30,7 @@ def main():
     for ins in inshu:
         for level in ins["levels"]:
             if level["name"] == "Platinum":
-                inshurances[ins["type_id"]] = level["payout"]
+                inshurances[ins["type_id"]] = level["payout"] - level["cost"]
 
     Members = dict()
     for aliance in loader.alliances:
@@ -53,13 +55,14 @@ def main():
                         print(f"Запись о структуре {killmail_id} пропущу это килмыло.")
                         continue
                     systemid = kmd["solar_system_id"]
-                    if str(systemid) not in loader.cta_systems :
-                        print(f"{systemid} Система не заапрувлена как кта. Wrong solar system. It will be passed")
-                        continue
+                    if len(loader.cta_systems) > 0:
+                        if str(systemid) not in loader.cta_systems :
+                            print(f"{systemid} Система не заапрувлена как кта. Wrong solar system. It will be passed")
+                            continue
 
                     if char_id not in Members:
                         char_info = requester.get_CharacterInfo(kmd["victim"]["character_id"])
-                        if char_info["alliance_id"] in loader.alliances:
+                        if str(char_info.get('alliance_id', '')) in loader.alliances:
                             new_member = {
                                 "ID": char_id,
                                 "Name": char_info["name"],
@@ -70,42 +73,63 @@ def main():
                                 "support_links": [],
                                 "tackle_links": [],
                                 "valuble_links": [],
-                                "capital_links": []
+                                "capital_links": [],
+                                "LightShip_links": []
                             }
                             Members[new_member["ID"]] = new_member
+                        else:
+                            continue
 
                     sh_id = kmd["victim"]["ship_type_id"]
                     ship_id = str(sh_id)
                     link = f"https://zkillboard.com/kill/{killmail_id}/"
                     cost = 0
+                    ktime = kmd["killmail_time"]
                     # forbidden = [33475, 33700]
                     if sh_id in inshurances:
                         cost = totalValue - inshurances[sh_id]
 
                     if ship_id in loader.support_ships:
                         Members[char_id]["total_cost"] += cost
-                        Members[char_id]["support_links"].append({"cost": cost, "link": link})
+                        Members[char_id]["support_links"].append({"cost": cost, "link": link, "ktime": ktime})
                         print(Members[char_id]["Name"] + " Большой молодец ")
                     elif ship_id in loader.tackle_ships:
                         Members[char_id]["total_cost"] += cost
-                        Members[char_id]["tackle_links"].append({"cost": cost, "link": link})
+                        Members[char_id]["tackle_links"].append({"cost": cost, "link": link, "ktime": ktime})
                         print(Members[char_id]["Name"] + " молодец ")
                     elif ship_id in loader.dps_ships:
                         Members[char_id]["total_cost"] += cost * 0.7
-                        Members[char_id]["dps_links"].append({"cost": cost, "link": link})
+                        Members[char_id]["dps_links"].append({"cost": cost, "link": link, "ktime": ktime})
                         print(Members[char_id]["Name"] + " норм ")
                     elif ship_id in loader.vaiuble_ships:
                         Members[char_id]["natur_compens_ids"].append(ship_id)
                         Members[char_id]["total_cost"] -= inshurances[sh_id]
                         cost = -inshurances[sh_id]
-                        Members[char_id]["valuble_links"].append({"cost": cost, "link": link})
+                        Members[char_id]["valuble_links"].append({"cost": cost, "link": link, "ktime": ktime})
                         print(Members[char_id]["Name"] + " молодец ")
                     elif ship_id in loader.capital_ships:
                         Members[char_id]["natur_compens_ids"].append(ship_id)
                         Members[char_id]["total_cost"] -= inshurances[sh_id]
                         cost = -inshurances[sh_id]
-                        Members[char_id]["capital_links"].append({"cost": cost, "link": link})
+                        Members[char_id]["capital_links"].append({"cost": cost, "link": link, "ktime": ktime})
                         print(Members[char_id]["Name"] + " Вообще молодец ")
+                    elif ship_id in loader.t3_ships:
+                        items = kmd["victim"]["items"]
+                        has_valid_item = any(
+                            str(item.get("item_type_id")) == "45609" and str(item.get("flag")) != "5"
+                            for item in items
+                        )
+                        if has_valid_item:
+                            Members[char_id]["total_cost"] += cost
+                            Members[char_id]["support_links"].append({"cost": cost, "link": link, "ktime": ktime})
+                            print(Members[char_id]["Name"] + " Большой молодец ")
+                        else:
+                            Members[char_id]["total_cost"] += cost * 0.7
+                            Members[char_id]["dps_links"].append({"cost": cost, "link": link, "ktime": ktime})
+                            print(Members[char_id]["Name"] + " норм ")
+                    elif ship_id in loader.light_ships:
+                        Members[char_id]["LightShip_links"].append({"cost": cost, "link": link, "ktime": ktime})
+                        print(Members[char_id]["Name"] + " водит вигилы")
                     else:
                         print(Members[char_id]["Name"] + " крабина ")
                 else:
@@ -140,6 +164,7 @@ def main():
                             "Aliance": member_data["Aliance"],
                             "Link Type": link_type,
                             "Cost": link["cost"],
+                            "ktime": link["ktime"],
                             "Link": link["link"]
                         })
 
@@ -158,19 +183,78 @@ def main():
     filename = f"output_{timestamp}.xlsx"
     # df.to_excel(filename, index=False)
 
-    with pd.ExcelWriter(filename) as writer:
-        main_df.to_excel(writer, sheet_name="Main", index=False)
+    with pd.ExcelWriter(filename, engine='openpyxl') as writer:
+        # 1. Сортируем данные
+        main_df = main_df.sort_values(by=['Aliance', 'Name'])
+        links_df = links_df.sort_values(by=['Aliance', 'Name'])
+
+        # 2. Создаем summary_df (без total_cost)
+        summary_df = main_df[['Name', 'Aliance']].drop_duplicates()
+        summary_df['Formation ships sum'] = 0
+        summary_df['Small ships sum'] = 0
+        summary_df['Total sum'] = 0
+
+        # 3. Записываем данные
+        main_df.to_excel(writer, sheet_name="Main", index=False)  # Пока с исходными значениями
         links_df.to_excel(writer, sheet_name="Links for check", index=False)
+        summary_df.to_excel(writer, sheet_name="Summary", index=False)
+
+        # 4. Получаем доступ к листам
+        workbook = writer.book
+        ws_main = writer.sheets['Main']
+        ws_summary = writer.sheets['Summary']
+        ws_links = writer.sheets['Links for check']
+
+        # 5. Добавляем формулы в Summary
+        for i in range(2, len(summary_df) + 2):
+            # Суммы по типам кораблей
+            ws_summary[
+                f'C{i}'] = f'=SUMIFS(\'{ws_links.title}\'!D:D, \'{ws_links.title}\'!A:A, A{i}, \'{ws_links.title}\'!C:C, "<>LightShip_links")'
+            ws_summary[
+                f'D{i}'] = f'=SUMIFS(\'{ws_links.title}\'!D:D, \'{ws_links.title}\'!A:A, A{i}, \'{ws_links.title}\'!C:C, "LightShip_links")'
+            ws_summary[f'E{i}'] = f'=C{i}+D{i}'
+
+        # 6. Заменяем значения в Main на формулы
+        total_cost_col = main_df.columns.get_loc('total_cost') + 1  # Номер колонки total_cost
+
+        for main_row in range(2, len(main_df) + 2):
+            name = ws_main[f'B{main_row}'].value
+            # Ищем соответствующую строку в Summary
+            for sum_row in range(2, len(summary_df) + 2):
+                if ws_summary[f'A{sum_row}'].value == name:
+                    # Заменяем значение на формулу
+                    ws_main.cell(
+                        row=main_row,
+                        column=total_cost_col,
+                        value=f'=Summary!E{sum_row}'  # Ссылка на Total sum
+                    )
+                    break
+
+        # 7. Форматирование
+        for sheet in [ws_main, ws_summary]:
+            # Жирные заголовки
+            for cell in sheet[1]:
+                cell.font = Font(bold=True)
+
+            # Числовой формат для сумм
+            for row in range(2, len(summary_df) + 2):
+                if sheet == ws_main:
+                    ws_main.cell(row=row, column=total_cost_col).number_format = numbers.FORMAT_NUMBER_COMMA_SEPARATED1
+                else:
+                    for col in ['C', 'D', 'E']:
+                        ws_summary.cell(row=row,
+                                        column=ord(col) - 64).number_format = numbers.FORMAT_NUMBER_COMMA_SEPARATED1
+
+        # 8. Итоговая строка в Summary
+        last_row = len(summary_df) + 2
+        ws_summary[f'B{last_row}'] = 'TOTAL'
+        ws_summary[f'C{last_row}'] = f'=SUM(C2:C{last_row - 1})'
+        ws_summary[f'D{last_row}'] = f'=SUM(D2:D{last_row - 1})'
+        ws_summary[f'E{last_row}'] = f'=SUM(E2:E{last_row - 1})'
+        for col in ['B', 'C', 'D', 'E']:
+            ws_summary[f'{col}{last_row}'].font = Font(bold=True)
 
     print(f"Excel-файл '{filename}' успешно создан!")
-
-
-
-
-
-
-
-
 
 
 
