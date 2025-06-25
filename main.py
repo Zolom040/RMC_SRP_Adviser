@@ -9,6 +9,9 @@ import pandas as pd
 import json
 import openpyxl
 import time
+import tkinter as tk
+from tkcalendar import Calendar
+from datetime import datetime
 
 def check_field(json, field_name):
     if field_name in json:
@@ -16,13 +19,58 @@ def check_field(json, field_name):
     else:
         print(f"Поля `{field_name}` нет в JSON.")
 
+def get_date_via_calendar(title):
+    def on_ok():
+        nonlocal selected_date
+        selected_date = cal.selection_get()
+        root.quit()
+
+    selected_date = None
+    root = tk.Tk()
+    root.title(title)
+    cal = Calendar(root, selectmode="day", date_pattern="yyyy-mm-dd")
+    cal.pack(pady=10)
+    tk.Button(root, text="OK", command=on_ok).pack(pady=5)
+    root.mainloop()
+    root.destroy()
+    return selected_date
+
+
 def main():
+    # === Выбор дат в начале программы ===
+    print("Запуск программы... (ожидайте GUI)")
+    start_date = get_date_via_calendar("Выберите дату начала")
+
+    end_date = get_date_via_calendar("Выберите дату конца")
+
+    if not start_date or not end_date:
+        print("Выбор дат отменён. Выход.")
+        exit()  # Завершаем программу, если даты не выбраны
+
+    if end_date.year - start_date.year > 0:
+        exit()
+
+    months = []
+    countmonths = end_date.month - start_date.month
+    if countmonths > 2:
+        exit()
+    elif countmonths == 0:
+        months.append(start_date.month)
+    elif countmonths == 1:
+        months.append(start_date.month)
+        months.append(end_date.month)
+    elif countmonths == 2:
+        months.append(start_date.month)
+        months.append(start_date.month+1)
+        months.append(end_date.month)
+
     loader = esi_ID_loader()
     current_date = datetime.now()
-    last_month = date.today().replace(day=1) - timedelta(days=1)
-    month = last_month.month
-    year = last_month.year
-    print(f"month {month} year {year}")
+    #last_month = date.today().replace(day=1) - timedelta(days=1)
+    #month = last_month.month
+
+    year = end_date.year
+    print(f"month {months} year {year}")
     print(f"{loader.cta_systems}")
     requester = EveRequester()
     inshu = requester.get_Inshurances()
@@ -37,104 +85,113 @@ def main():
         AliInfo = requester.get_Aliance_Info(aliance)
         AlianceTicker = AliInfo["ticker"]
         for p in range(1,15):
-            aliance_killmails = requester.get_zkillboard_killmails_for_alliance(aliance,year,month,p)
-            for km in aliance_killmails:
-                killmail_id = km["killmail_id"]
-                killmail_hash = km["zkb"]["hash"]
-                totalValue = km["zkb"]["fittedValue"]
-                cost = 0
-                if not km["zkb"]["npc"]:
-                    kmd = requester.get_killmail_details(killmail_id, killmail_hash)
-                    if "victim" in kmd:
-                        if "character_id" in kmd["victim"]:
-                            char_id = kmd["victim"]["character_id"]
+            for m in months:
+                aliance_killmails = requester.get_zkillboard_killmails_for_alliance(aliance,year,m,p)
+                for km in aliance_killmails:
+                    killmail_id = km["killmail_id"]
+                    killmail_hash = km["zkb"]["hash"]
+                    totalValue = km["zkb"]["fittedValue"]
+                    cost = 0
+                    if not km["zkb"]["npc"]:
+                        kmd = requester.get_killmail_details(killmail_id, killmail_hash)
+                        server_date = datetime.fromisoformat(kmd["killmail_time"].replace("Z", "+00:00"))
+                        # Приводим server_date к типу date (отбрасываем время)
+                        server_date_only = server_date.date()
+                        if start_date <= server_date_only <= end_date:
+                            print("Дата попадает в диапазон!")
+                        else:
+                            print("Дата НЕ в диапазоне.")
+                            continue
+                        if "victim" in kmd:
+                            if "character_id" in kmd["victim"]:
+                                char_id = kmd["victim"]["character_id"]
+                            else:
+                                print(f"Запись о структуре {killmail_id} пропущу это килмыло.")
+                                continue
                         else:
                             print(f"Запись о структуре {killmail_id} пропущу это килмыло.")
                             continue
-                    else:
-                        print(f"Запись о структуре {killmail_id} пропущу это килмыло.")
-                        continue
-                    systemid = kmd["solar_system_id"]
-                    if len(loader.cta_systems) > 0:
-                        if str(systemid) not in loader.cta_systems :
-                            print(f"{systemid} Система не заапрувлена как кта. Wrong solar system. It will be passed")
-                            continue
+                        systemid = kmd["solar_system_id"]
+                        if len(loader.cta_systems) > 0:
+                            if str(systemid) not in loader.cta_systems :
+                                print(f"{systemid} Система не заапрувлена как кта. Wrong solar system. It will be passed")
+                                continue
 
-                    if char_id not in Members:
-                        char_info = requester.get_CharacterInfo(kmd["victim"]["character_id"])
-                        if str(char_info.get('alliance_id', '')) in loader.alliances:
-                            new_member = {
-                                "ID": char_id,
-                                "Name": char_info["name"],
-                                "Aliance": AlianceTicker,
-                                "total_cost": 0,
-                                "natur_compens_ids" : [],
-                                "dps_links": [],
-                                "support_links": [],
-                                "tackle_links": [],
-                                "valuble_links": [],
-                                "capital_links": [],
-                                "LightShip_links": []
-                            }
-                            Members[new_member["ID"]] = new_member
-                        else:
-                            continue
+                        if char_id not in Members:
+                            char_info = requester.get_CharacterInfo(kmd["victim"]["character_id"])
+                            if str(char_info.get('alliance_id', '')) in loader.alliances:
+                                new_member = {
+                                    "ID": char_id,
+                                    "Name": char_info["name"],
+                                    "Aliance": AlianceTicker,
+                                    "total_cost": 0,
+                                    "natur_compens_ids" : [],
+                                    "dps_links": [],
+                                    "support_links": [],
+                                    "tackle_links": [],
+                                    "valuble_links": [],
+                                    "capital_links": [],
+                                    "LightShip_links": []
+                                }
+                                Members[new_member["ID"]] = new_member
+                            else:
+                                continue
 
-                    sh_id = kmd["victim"]["ship_type_id"]
-                    ship_id = str(sh_id)
-                    link = f"https://zkillboard.com/kill/{killmail_id}/"
-                    cost = 0
-                    ktime = kmd["killmail_time"]
-                    # forbidden = [33475, 33700]
-                    if sh_id in inshurances:
-                        cost = totalValue - inshurances[sh_id]
+                        sh_id = kmd["victim"]["ship_type_id"]
+                        ship_id = str(sh_id)
+                        link = f"https://zkillboard.com/kill/{killmail_id}/"
+                        cost = 0
+                        ktime = kmd["killmail_time"].replace("Z", "+00:00")
+                        # forbidden = [33475, 33700]
+                        if sh_id in inshurances:
+                            cost = totalValue - inshurances[sh_id]
 
-                    if ship_id in loader.support_ships:
-                        Members[char_id]["total_cost"] += cost
-                        Members[char_id]["support_links"].append({"cost": cost, "link": link, "ktime": ktime})
-                        print(Members[char_id]["Name"] + " Большой молодец ")
-                    elif ship_id in loader.tackle_ships:
-                        Members[char_id]["total_cost"] += cost
-                        Members[char_id]["tackle_links"].append({"cost": cost, "link": link, "ktime": ktime})
-                        print(Members[char_id]["Name"] + " молодец ")
-                    elif ship_id in loader.dps_ships:
-                        Members[char_id]["total_cost"] += cost * 0.7
-                        Members[char_id]["dps_links"].append({"cost": cost, "link": link, "ktime": ktime})
-                        print(Members[char_id]["Name"] + " норм ")
-                    elif ship_id in loader.vaiuble_ships:
-                        Members[char_id]["natur_compens_ids"].append(ship_id)
-                        Members[char_id]["total_cost"] -= inshurances[sh_id]
-                        cost = -inshurances[sh_id]
-                        Members[char_id]["valuble_links"].append({"cost": cost, "link": link, "ktime": ktime})
-                        print(Members[char_id]["Name"] + " молодец ")
-                    elif ship_id in loader.capital_ships:
-                        Members[char_id]["natur_compens_ids"].append(ship_id)
-                        Members[char_id]["total_cost"] -= inshurances[sh_id]
-                        cost = -inshurances[sh_id]
-                        Members[char_id]["capital_links"].append({"cost": cost, "link": link, "ktime": ktime})
-                        print(Members[char_id]["Name"] + " Вообще молодец ")
-                    elif ship_id in loader.t3_ships:
-                        items = kmd["victim"]["items"]
-                        has_valid_item = any(
-                            str(item.get("item_type_id")) == "45609" and str(item.get("flag")) != "5"
-                            for item in items
-                        )
-                        if has_valid_item:
+                        if ship_id in loader.support_ships:
                             Members[char_id]["total_cost"] += cost
                             Members[char_id]["support_links"].append({"cost": cost, "link": link, "ktime": ktime})
                             print(Members[char_id]["Name"] + " Большой молодец ")
-                        else:
+                        elif ship_id in loader.tackle_ships:
+                            Members[char_id]["total_cost"] += cost
+                            Members[char_id]["tackle_links"].append({"cost": cost, "link": link, "ktime": ktime})
+                            print(Members[char_id]["Name"] + " молодец ")
+                        elif ship_id in loader.dps_ships:
                             Members[char_id]["total_cost"] += cost * 0.7
                             Members[char_id]["dps_links"].append({"cost": cost, "link": link, "ktime": ktime})
                             print(Members[char_id]["Name"] + " норм ")
-                    elif ship_id in loader.light_ships:
-                        Members[char_id]["LightShip_links"].append({"cost": cost, "link": link, "ktime": ktime})
-                        print(Members[char_id]["Name"] + " водит вигилы")
+                        elif ship_id in loader.vaiuble_ships:
+                            Members[char_id]["natur_compens_ids"].append(ship_id)
+                            Members[char_id]["total_cost"] -= inshurances[sh_id]
+                            cost = -inshurances[sh_id]
+                            Members[char_id]["valuble_links"].append({"cost": cost, "link": link, "ktime": ktime})
+                            print(Members[char_id]["Name"] + " молодец ")
+                        elif ship_id in loader.capital_ships:
+                            Members[char_id]["natur_compens_ids"].append(ship_id)
+                            Members[char_id]["total_cost"] -= inshurances[sh_id]
+                            cost = -inshurances[sh_id]
+                            Members[char_id]["capital_links"].append({"cost": cost, "link": link, "ktime": ktime})
+                            print(Members[char_id]["Name"] + " Вообще молодец ")
+                        elif ship_id in loader.t3_ships:
+                            items = kmd["victim"]["items"]
+                            has_valid_item = any(
+                                str(item.get("item_type_id")) == "45609" and str(item.get("flag")) != "5"
+                                for item in items
+                            )
+                            if has_valid_item:
+                                Members[char_id]["total_cost"] += cost
+                                Members[char_id]["support_links"].append({"cost": cost, "link": link, "ktime": ktime})
+                                print(Members[char_id]["Name"] + " Большой молодец ")
+                            else:
+                                Members[char_id]["total_cost"] += cost * 0.7
+                                Members[char_id]["dps_links"].append({"cost": cost, "link": link, "ktime": ktime})
+                                print(Members[char_id]["Name"] + " норм ")
+                        elif ship_id in loader.light_ships:
+                            Members[char_id]["LightShip_links"].append({"cost": cost, "link": link, "ktime": ktime})
+                            print(Members[char_id]["Name"] + " водит вигилы")
+                        else:
+                            print(Members[char_id]["Name"] + " крабина ")
                     else:
-                        print(Members[char_id]["Name"] + " крабина ")
-                else:
-                    print("Килл от нпц")
-            time.sleep(2)
+                        print("Килл от нпц")
+                time.sleep(2)
 
     MData = dict()
     for char_id, member_data in Members.items():
@@ -209,9 +266,11 @@ def main():
         for i in range(2, len(summary_df) + 2):
             # Суммы по типам кораблей
             ws_summary[
-                f'C{i}'] = f'=SUMIFS(\'{ws_links.title}\'!D:D, \'{ws_links.title}\'!A:A, A{i}, \'{ws_links.title}\'!C:C, "<>LightShip_links")'
+                f'C{i}'] = f'=SUMIFS(\'{ws_links.title}\'!D:D, \'{ws_links.title}\'!A:A, A{i}, \'{ws_links.title}\'!C' \
+                           f':C, "<>LightShip_links") '
             ws_summary[
-                f'D{i}'] = f'=SUMIFS(\'{ws_links.title}\'!D:D, \'{ws_links.title}\'!A:A, A{i}, \'{ws_links.title}\'!C:C, "LightShip_links")'
+                f'D{i}'] = f'=SUMIFS(\'{ws_links.title}\'!D:D, \'{ws_links.title}\'!A:A, A{i}, \'{ws_links.title}\'!C' \
+                           f':C, "LightShip_links") '
             ws_summary[f'E{i}'] = f'=C{i}+D{i}'
 
         # 6. Заменяем значения в Main на формулы
