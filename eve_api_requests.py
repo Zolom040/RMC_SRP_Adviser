@@ -15,6 +15,12 @@ class EveRequester:
         response = requests.get(url)
         return response.json()
 
+    def get_zkillboard_fleetcoms_itteractions(self, fc_id = None, year = 2025, month= 1, page =1):
+        time.sleep(2)
+        url = f"https://zkillboard.com/api/characterID/{fc_id}/year/{year}/month/{month}/page/{page}/"
+        response = requests.get(url)
+        return response.json()
+
     # Запрос на детали килмыла (нужно чтобы определить шип
     # Ответ - attackers, killmail_id, killmail_time, solar_system_id, victim [aliance_id, character_id, corporation_id,
     # items, position [x,y,z], ship_type_id, faction_id]

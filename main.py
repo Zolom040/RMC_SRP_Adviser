@@ -71,7 +71,7 @@ def main():
 
     year = end_date.year
     print(f"month {months} year {year}")
-    print(f"{loader.cta_systems}")
+    #print(f"{loader.cta_systems}")
     requester = EveRequester()
     inshu = requester.get_Inshurances()
     inshurances = dict()
@@ -80,13 +80,38 @@ def main():
             if level["name"] == "Platinum":
                 inshurances[ins["type_id"]] = level["payout"] - level["cost"]
 
+    cta_systems = set()
+    for fc in loader.cta_fleetcoms:
+        for m in months:
+            for p in range(1, 15):
+                fleetcom_interactions = requester.get_zkillboard_fleetcoms_itteractions(fc,year,m,p)
+                for km in fleetcom_interactions:
+                    killmail_id = km["killmail_id"]
+                    killmail_hash = km["zkb"]["hash"]
+                    if not km["zkb"]["npc"]:
+                        kmd = requester.get_killmail_details(killmail_id, killmail_hash)
+                        server_date = datetime.fromisoformat(kmd["killmail_time"].replace("Z", "+00:00"))
+                        server_date_only = server_date.date()
+                        if start_date <= server_date_only <= end_date:
+                            cta_systems.add(str(kmd["solar_system_id"]));
+
+    print(f"{cta_systems}")
+    time.sleep(60)
     Members = dict()
     for aliance in loader.alliances:
+        print(f"alliance id is {aliance}")
         AliInfo = requester.get_Aliance_Info(aliance)
+        print(f"{AliInfo}")
         AlianceTicker = AliInfo["ticker"]
-        for p in range(1,15):
-            for m in months:
+        for m in months:
+            emptypage = False
+            for p in range(1,15):
+                if emptypage:
+                    continue
                 aliance_killmails = requester.get_zkillboard_killmails_for_alliance(aliance,year,m,p)
+                if len(aliance_killmails) < 1:
+                    emptypage = True
+                    continue
                 for km in aliance_killmails:
                     killmail_id = km["killmail_id"]
                     killmail_hash = km["zkb"]["hash"]
@@ -112,8 +137,9 @@ def main():
                             print(f"Запись о структуре {killmail_id} пропущу это килмыло.")
                             continue
                         systemid = kmd["solar_system_id"]
-                        if len(loader.cta_systems) > 0:
-                            if str(systemid) not in loader.cta_systems :
+                        # if len(loader.cta_systems) > 0:
+                        if len(cta_systems) > 0:
+                            if str(systemid) not in cta_systems :
                                 print(f"{systemid} Система не заапрувлена как кта. Wrong solar system. It will be passed")
                                 continue
 

@@ -9,9 +9,11 @@ class esi_ID_loader:
         self.tackle_ships = self._load_from_file('Tackle_ids.txt')
         self.vaiuble_ships = self._load_from_file('ValubleShip_ids.txt')
         self.capital_ships = self._load_from_file('CapitalShip_ids.txt')
-        self.cta_systems = self._load_from_file("CTA_systems.txt")
+        self.cta_fleetcoms = self._load_from_file('CTA_fleetcoms.txt')
         self.light_ships = self._load_from_file("Light_Ships.txt")
         self.t3_ships = self._load_from_file("t3_ships.txt")
+
+        # self.cta_systems = self._load_from_file("CTA_systems.txt")
 
     @staticmethod
     def _load_from_file(filename):
